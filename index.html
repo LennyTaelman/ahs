@@ -79,6 +79,7 @@
 
   .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .actions .spacer { flex: 1; }
+  #diag { margin: 0; font: 11px var(--mono); color: var(--muted); }
   details { color: var(--muted); font-size: 14px; }
   details p { margin: 8px 0 0; max-width: 60ch; }
   summary { cursor: pointer; }
@@ -126,6 +127,8 @@
     </select>
   </div>
 
+  <p id="diag">input –</p>
+
   <details>
     <summary>How to read this</summary>
     <p>The dot shows the shape of your vowel. Up and down follows the first resonance of your vocal tract, which rises as you open. Left and right follows the second, which rises as the vowel gets brighter and more forward. Slide slowly from oo through oh, ah, eh to ee and watch it travel.</p>
@@ -155,6 +158,7 @@
   let trail = [];                   // recent smoothed dot positions {t, l1, l2}
   let smooth = null, ringSmooth = null, midiSmooth = null, lastVoiced = 0, lastAnalysis = 0;
   let colors = {};
+  let floor = null;                 // adaptive estimate of the room's background level
 
   try {
     const saved = JSON.parse(localStorage.getItem('ahs.ref') || 'null');
@@ -216,7 +220,7 @@
       ctx.globalAlpha = 1;
     }
 
-    const live = now - lastVoiced < 250;
+    const live = now - lastVoiced < 500;
     const onTarget = live && ref && smooth && distance(smooth) < TOL;
     const color = onTarget ? colors.on : colors.dot;
     ctx.fillStyle = color;
@@ -268,7 +272,16 @@
 
     analyser.getFloatTimeDomainData(buf);
     const r = dsp.analyze(buf);
-    const voiced = r.rms > 0.003 && r.clarity > 0.8 && r.f0 > 60 && r.f0 < 700;
+    // Tablet and phone microphones are quiet without automatic gain, so judge loudness
+    // against the room's own background level and not against a fixed threshold.
+    if (floor === null || r.rms < floor) floor = r.rms;
+    else floor = Math.min(0.02, floor * 1.002);
+    const voiced = r.f0 > 60 && r.f0 < 700 && r.rms > 0.0002 &&
+      (r.clarity > 0.85 || (r.clarity > 0.6 && r.rms > 3 * floor));
+    $('diag').textContent = 'input ' + (r.rms > 0 ? Math.round(20 * Math.log10(r.rms)) + ' dB' : 'silent') +
+      ' · pitch lock ' + Math.round(100 * r.clarity) + '%' +
+      ' · resonances ' + (r.f1 > 0 ? 'found' : 'not found') +
+      ' · ' + Math.round(audioCtx.sampleRate / 1000) + ' kHz';
 
     if (voiced) {
       // Average over roughly a vibrato cycle so the reading shows the centre of the note.

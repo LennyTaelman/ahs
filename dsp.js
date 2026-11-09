@@ -168,7 +168,7 @@
       let sq = 0;
       for (let i = pStart; i < end; i++) sq += buf[i] * buf[i];
       out.rms = Math.sqrt(sq / (end - pStart));
-      if (out.rms < 1e-4) return out;
+      if (out.rms < 1e-6) return out;
 
       const y = yin(buf, pStart, sr, yinBuf);
       out.f0 = y.f0; out.clarity = y.clarity;
@@ -218,13 +218,14 @@
         if (roots.im[k] <= 0) continue;
         const f = (Math.atan2(roots.im[k], roots.re[k]) * fs) / (2 * Math.PI);
         const bw = (-Math.log(Math.hypot(roots.re[k], roots.im[k])) * fs) / Math.PI;
-        if (f > 200 && f < fs / 2 - 200 && bw < 500) fm.push(f);
+        if (f > 200 && f < fs / 2 - 200 && bw < 700) fm.push(f);
       }
       fm.sort((a, b) => a - b);
       out.formants = fm;
-      if (fm.length >= 2 && fm[0] < 1100 && fm[1] > 500 && fm[1] < 2800) {
-        out.f1 = fm[0]; out.f2 = fm[1];
-      }
+      // F1 is the lowest resonance in its plausible range, F2 the next one clearly above it.
+      const f1 = fm.find((f) => f >= 230 && f <= 1100);
+      const f2 = f1 && fm.find((f) => f > f1 + 180 && f < 2800);
+      if (f1 && f2) { out.f1 = f1; out.f2 = f2; }
       return out;
     }
 
