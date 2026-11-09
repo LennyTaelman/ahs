@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ahs</title>
+<style>
+  /* Layout: one narrow column, the vowel pad is the instrument; everything else is a quiet readout below it. */
+  :root {
+    --bg: #f3f1f6;
+    --surface: #ffffff;
+    --line: #d9d5e2;
+    --fg: #1d1a26;
+    --muted: #6d6780;
+    --dot: #c2410c;
+    --on: #0f8a6a;
+    --target: #5b4bc4;
+    --sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14121b;
+      --surface: #1d1a27;
+      --line: #322d42;
+      --fg: #ece9f5;
+      --muted: #9a93b0;
+      --dot: #ff9d5c;
+      --on: #3fd6ad;
+      --target: #a99bff;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.45 var(--sans);
+    padding-block: max(14px, env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  main { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  button, select {
+    font: inherit; color: var(--fg); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--target); outline-offset: 2px; }
+
+  #status { min-height: 1.45em; margin: 0; font-size: 17px; font-weight: 600; text-wrap: balance; }
+  #status.on { color: var(--on); }
+  #status.quiet { color: var(--muted); font-weight: 500; }
+
+  .pad { position: relative; width: 100%; aspect-ratio: 1; max-height: 62vh; margin: 0 auto;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .pad canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .edge { position: absolute; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); pointer-events: none; }
+  .edge.t { top: 8px; left: 50%; transform: translateX(-50%); }
+  .edge.b { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  .edge.l { left: 10px; top: 50%; transform: translateY(-50%); }
+  .edge.r { right: 10px; top: 50%; transform: translateY(-50%); }
+  #hz { position: absolute; left: 10px; top: 9px; font: 11px var(--mono); color: var(--muted); }
+
+  .row { display: grid; grid-template-columns: 4.2em 1fr 4.6em; align-items: center; gap: 10px; }
+  .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .value { font: 13px var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .track.open { overflow: visible; }
+  .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--dot); border-radius: 5px; }
+  .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--target); }
+  .centre { position: absolute; top: -3px; bottom: -3px; left: calc(50% - 1px); width: 2px; background: var(--muted); }
+  .needle { position: absolute; top: -4px; width: 10px; height: 18px; margin-left: -5px; border-radius: 5px; background: var(--dot); left: 50%; }
+  .needle.on { background: var(--on); }
+  #note { font: 600 20px var(--sans); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .actions .spacer { flex: 1; }
+  details { color: var(--muted); font-size: 14px; }
+  details p { margin: 8px 0 0; max-width: 60ch; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Ahs</h1>
+    <button id="start" class="primary">Start</button>
+  </header>
+
+  <p id="status" class="quiet">Tap Start, allow the microphone, and sing an ah.</p>
+
+  <div class="pad">
+    <canvas id="pad"></canvas>
+    <span class="edge t">more open</span>
+    <span class="edge b">more closed</span>
+    <span class="edge l">darker</span>
+    <span class="edge r">brighter</span>
+    <span id="hz"></span>
+  </div>
+
+  <div class="row">
+    <span class="label">Ring</span>
+    <div class="track open"><div class="fill" id="ringFill"></div><div class="tick" id="ringTick" hidden></div></div>
+    <span class="value" id="ringVal">–</span>
+  </div>
+  <div class="row">
+    <span id="note">–</span>
+    <div class="track open"><div class="centre"></div><div class="needle" id="needle" hidden></div></div>
+    <span class="value" id="cents">–</span>
+  </div>
+
+  <div class="actions">
+    <button id="setRef" disabled>Set my ah</button>
+    <button id="clearRef" disabled>Clear</button>
+    <span class="spacer"></span>
+    <label class="label" for="a4">A =</label>
+    <select id="a4">
+      <option value="415">415</option>
+      <option value="430">430</option>
+      <option value="440" selected>440</option>
+      <option value="442">442</option>
+    </select>
+  </div>
+
+  <details>
+    <summary>How to read this</summary>
+    <p>The dot shows the shape of your vowel. Up and down follows the first resonance of your vocal tract, which rises as you open. Left and right follows the second, which rises as the vowel gets brighter and more forward. Slide slowly from oo through oh, ah, eh to ee and watch it travel.</p>
+    <p>Sing an ah you like and tap <b>Set my ah</b>. The pad then zooms in on that spot and the circle marks it. Stay inside the circle while you change pitch, dynamics or breath.</p>
+    <p>Ring compares the energy around 2 to 4 kHz with everything below. It moves with mouth distance, so keep the microphone in one place.</p>
+    <p>Above roughly the F4 above middle C the dot gets less trustworthy, because the harmonics become too sparse to outline the resonances.</p>
+  </details>
+</main>
+
+<script src="dsp.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('pad'), ctx = canvas.getContext('2d');
+  const statusEl = $('status');
+
+  const FULL = { f1: [250, 1000], f2: [600, 2600] };
+  const ZOOM = Math.log(1.45);      // half-width of the zoomed view, in log frequency
+  const TOL = 0.06;                 // "on your ah" radius, about 6% in frequency
+  const LANDMARKS = [['i', 280, 2250], ['ɛ', 530, 1850], ['a', 730, 1100], ['ɔ', 500, 850], ['u', 310, 800]];
+  const NOTES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+
+  let audioCtx = null, analyser = null, stream = null, dsp = null, buf = null, running = false;
+  let ref = null, a4 = 440;
+  let hist = [];                    // recent voiced frames {t, f1, f2, ring}
+  let trail = [];                   // recent smoothed dot positions {t, l1, l2}
+  let smooth = null, ringSmooth = null, midiSmooth = null, lastVoiced = 0, lastAnalysis = 0;
+  let colors = {};
+
+  try {
+    const saved = JSON.parse(localStorage.getItem('ahs.ref') || 'null');
+    if (saved && saved.f1 > 0 && saved.f2 > 0) ref = saved;
+    const savedA4 = +localStorage.getItem('ahs.a4');
+    if (savedA4) { a4 = savedA4; $('a4').value = String(savedA4); }
+  } catch (e) { /* storage unavailable: run without it */ }
+
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    for (const k of ['line', 'fg', 'muted', 'dot', 'on', 'target', 'surface']) colors[k] = cs.getPropertyValue('--' + k).trim();
+  }
+  readColors();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readColors(); draw(); });
+
+  function setStatus(text, cls) {
+    if (statusEl.textContent !== text) statusEl.textContent = text;
+    statusEl.className = cls || '';
+  }
+  const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+
+  // Map log-frequencies to pad coordinates in [0,1]. x grows with F2 (brighter), y shrinks with F1 (open is up).
+  function view() {
+    if (ref) return { x0: Math.log(ref.f2) - ZOOM, x1: Math.log(ref.f2) + ZOOM, y0: Math.log(ref.f1) - ZOOM, y1: Math.log(ref.f1) + ZOOM };
+    return { x0: Math.log(FULL.f2[0]), x1: Math.log(FULL.f2[1]), y0: Math.log(FULL.f1[0]), y1: Math.log(FULL.f1[1]) };
+  }
+  function toPad(l1, l2, v) {
+    const clamp = (z) => Math.min(0.97, Math.max(0.03, z));
+    return [clamp((l2 - v.x0) / (v.x1 - v.x0)), clamp(1 - (l1 - v.y0) / (v.y1 - v.y0))];
+  }
+
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
+    draw();
+  }
+  new ResizeObserver(resize).observe(canvas);
+
+  function draw() {
+    const w = canvas.width, h = canvas.height, dpr = window.devicePixelRatio || 1;
+    if (!w) return;
+    const v = view(), now = performance.now();
+    ctx.clearRect(0, 0, w, h);
+
+    if (ref) {
+      const [cx, cy] = toPad(Math.log(ref.f1), Math.log(ref.f2), v);
+      ctx.strokeStyle = colors.line; ctx.lineWidth = dpr;
+      ctx.beginPath(); ctx.moveTo(cx * w, 0); ctx.lineTo(cx * w, h); ctx.moveTo(0, cy * h); ctx.lineTo(w, cy * h); ctx.stroke();
+      ctx.strokeStyle = colors.target; ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.ellipse(cx * w, cy * h, (TOL / (2 * ZOOM)) * w, (TOL / (2 * ZOOM)) * h, 0, 0, 2 * Math.PI); ctx.stroke();
+    } else {
+      ctx.fillStyle = colors.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `${18 * dpr}px ${getComputedStyle(document.body).fontFamily}`;
+      ctx.globalAlpha = 0.55;
+      for (const [name, f1, f2] of LANDMARKS) {
+        const [x, y] = toPad(Math.log(f1), Math.log(f2), v);
+        ctx.fillText(name, x * w, y * h);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    const live = now - lastVoiced < 250;
+    const onTarget = live && ref && smooth && distance(smooth) < TOL;
+    const color = onTarget ? colors.on : colors.dot;
+    ctx.fillStyle = color;
+    for (const p of trail) {
+      const age = (now - p.t) / 1200;
+      if (age > 1) continue;
+      const [x, y] = toPad(p.l1, p.l2, v);
+      ctx.globalAlpha = 0.35 * (1 - age);
+      ctx.beginPath(); ctx.arc(x * w, y * h, 4 * dpr, 0, 2 * Math.PI); ctx.fill();
+    }
+    if (smooth) {
+      const [x, y] = toPad(smooth.l1, smooth.l2, v);
+      ctx.globalAlpha = live ? 1 : 0.25;
+      ctx.beginPath(); ctx.arc(x * w, y * h, 11 * dpr, 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function distance(s) {
+    return Math.hypot(s.l1 - Math.log(ref.f1), s.l2 - Math.log(ref.f2));
+  }
+
+  function describe(s) {
+    const d1 = s.l1 - Math.log(ref.f1), d2 = s.l2 - Math.log(ref.f2);
+    if (Math.hypot(d1, d2) < TOL) return ['On your ah', 'on'];
+    const parts = [];
+    if (Math.abs(d2) > TOL * 0.7) parts.push(d2 > 0 ? 'brighter' : 'darker');
+    if (Math.abs(d1) > TOL * 0.7) parts.push(d1 > 0 ? 'more open' : 'more closed');
+    const text = parts.join(' and ');
+    return [text.charAt(0).toUpperCase() + text.slice(1) + ' than your ah', ''];
+  }
+
+  function ringPct(db) { return Math.min(100, Math.max(0, ((db + 40) / 35) * 100)); }
+
+  function updateRefUi() {
+    $('clearRef').disabled = !ref;
+    const tick = $('ringTick');
+    tick.hidden = !ref;
+    if (ref) tick.style.left = ringPct(ref.ring) + '%';
+  }
+  updateRefUi();
+
+  function frame() {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    const now = performance.now();
+    if (now - lastAnalysis < 30) { draw(); return; }
+    lastAnalysis = now;
+
+    analyser.getFloatTimeDomainData(buf);
+    const r = dsp.analyze(buf);
+    const voiced = r.rms > 0.003 && r.clarity > 0.8 && r.f0 > 60 && r.f0 < 700;
+
+    if (voiced) {
+      // Average over roughly a vibrato cycle so the reading shows the centre of the note.
+      const raw = 69 + 12 * Math.log2(r.f0 / a4);
+      midiSmooth = midiSmooth === null || Math.abs(raw - midiSmooth) > 0.8 ? raw : midiSmooth + 0.12 * (raw - midiSmooth);
+      const midi = midiSmooth, near = Math.round(midi), cents = Math.round((midi - near) * 100);
+      $('note').textContent = NOTES[((near % 12) + 12) % 12] + (Math.floor(near / 12) - 1);
+      $('cents').textContent = (cents > 0 ? '+' : cents < 0 ? '−' : '') + Math.abs(cents) + ' ¢';
+      const needle = $('needle');
+      needle.hidden = false;
+      needle.style.left = 50 + cents + '%';
+      needle.classList.toggle('on', Math.abs(cents) <= 10);
+
+      ringSmooth = ringSmooth === null ? r.ring : ringSmooth + 0.25 * (r.ring - ringSmooth);
+      $('ringFill').style.width = ringPct(ringSmooth) + '%';
+      $('ringVal').textContent = ringSmooth.toFixed(0) + ' dB';
+    }
+
+    if (voiced && r.f1 > 0) {
+      hist.push({ t: now, f1: r.f1, f2: r.f2, ring: r.ring });
+      if (hist.length > 60) hist.shift();
+      const recent = hist.slice(-5);
+      const l1 = Math.log(median(recent.map((p) => p.f1))), l2 = Math.log(median(recent.map((p) => p.f2)));
+      if (!smooth || now - lastVoiced > 400) smooth = { l1, l2 };
+      else { smooth.l1 += 0.35 * (l1 - smooth.l1); smooth.l2 += 0.35 * (l2 - smooth.l2); }
+      lastVoiced = now;
+      trail.push({ t: now, l1: smooth.l1, l2: smooth.l2 });
+      if (trail.length > 60) trail.shift();
+      $('hz').textContent = `F1 ${Math.round(Math.exp(smooth.l1))}  F2 ${Math.round(Math.exp(smooth.l2))} Hz`;
+      $('setRef').disabled = false;
+      if (ref) { const [t, c] = describe(smooth); setStatus(t, c); }
+      else setStatus('Hold an ah you like, then tap Set my ah.', 'quiet');
+    } else if (now - lastVoiced > 600) {
+      setStatus('Listening…', 'quiet');
+      $('needle').hidden = true;
+      midiSmooth = null;
+    }
+    draw();
+  }
+
+  async function start() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('This browser blocks the microphone here. Open the page over https or from localhost.');
+      return;
+    }
+    try {
+      // Voice-call processing would reshape exactly the things being measured, so turn it all off.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+    } catch (e) {
+      setStatus(e && e.name === 'NotAllowedError'
+        ? 'Microphone access was refused. Allow it in the browser’s site settings, then tap Start.'
+        : 'No microphone could be opened. Check that one is connected, then tap Start.');
+      return;
+    }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+    dsp = AhsDSP.createAnalyzer(audioCtx.sampleRate);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 8192;
+    while (analyser.fftSize < dsp.need) analyser.fftSize *= 2;
+    buf = new Float32Array(analyser.fftSize);
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    running = true;
+    $('start').textContent = 'Stop';
+    $('start').classList.remove('primary');
+    setStatus('Listening…', 'quiet');
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) { /* optional */ }
+    requestAnimationFrame(frame);
+  }
+
+  function stop() {
+    running = false;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    if (audioCtx) audioCtx.close();
+    stream = audioCtx = analyser = null;
+    $('start').textContent = 'Start';
+    $('start').classList.add('primary');
+    $('needle').hidden = true;
+    setStatus('Stopped.', 'quiet');
+    draw();
+  }
+
+  $('start').addEventListener('click', () => (running ? stop() : start()));
+
+  $('setRef').addEventListener('click', () => {
+    // Use the last second and a half of singing, so you can tap just after a good one.
+    const last = hist.length ? hist[hist.length - 1].t : 0;
+    const take = hist.filter((p) => last - p.t < 1500);
+    if (take.length < 8 || performance.now() - last > 6000) {
+      setStatus('Sing the ah for a second or two first, then tap Set my ah.', 'quiet');
+      return;
+    }
+    ref = { f1: median(take.map((p) => p.f1)), f2: median(take.map((p) => p.f2)), ring: median(take.map((p) => p.ring)) };
+    try { localStorage.setItem('ahs.ref', JSON.stringify(ref)); } catch (e) { /* not saved */ }
+    trail = [];
+    updateRefUi();
+    setStatus('Saved. The circle is your ah.', 'on');
+    draw();
+  });
+
+  $('clearRef').addEventListener('click', () => {
+    ref = null;
+    try { localStorage.removeItem('ahs.ref'); } catch (e) { /* nothing to clear */ }
+    trail = [];
+    updateRefUi();
+    draw();
+  });
+
+  $('a4').addEventListener('change', (e) => {
+    a4 = +e.target.value;
+    try { localStorage.setItem('ahs.a4', String(a4)); } catch (e2) { /* not saved */ }
+  });
+})();
+</script>
+</body>
+</html>
